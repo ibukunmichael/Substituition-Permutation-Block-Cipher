@@ -1,0 +1,235 @@
+//==========================================================
+//The cipher TOY16 is a 12-round 16-bit block cipher derived 
+//from the framework of Substituition-Permutation Networks
+//	
+//					IBUKUN, MICHAEL A.	
+//===========================================================
+
+
+
+
+//===MY FUNCTIONS====================Description==================
+//myGammaPrime						The SBox	
+//
+//myGamma 							The Confusion Layer
+//
+//myLamda							The Diffusion Layer
+//
+//myKi								The Key-Schedule
+//						
+//myEnc 							The Encryption Function
+//						
+//TOY16								Main: makes use of the Encryption function
+//									to encrypt (Message, Key)
+//	
+//FINDKEY							Main: finds key using the Encryption function 
+//									(Message, CipherText)
+//=================================================================
+
+
+
+
+ myGammaPrime := function(gp_in)
+	local in_seq, 
+			g, I, F, 
+			gp_out, 
+			p_t, inv_p_t; 
+
+	in_seq := Reverse(Eltseq(gp_in));
+	P<t> := PolynomialRing(GF(2));
+	g := t^4 + t^3 + t^2 + t + 1; //Polynomial g from question one
+	I := ideal<P|g>;
+	F := quo<P|I>;	// The quotient of P in mod I.
+	F<T> := quo<P|I>;
+	
+	if Seqint(Parent([1])!in_seq, 2) eq 0 then
+		gp_out := [0,0,0,0];
+	else
+		p_t := F!in_seq;
+		inv_p_t := p_t^-1; 
+		gp_out := Reverse(Eltseq(inv_p_t));
+		gp_out := [0 : i in [1..4 - #gp_out]] cat gp_out;
+	end if;
+	return gp_out;
+
+end function;
+
+
+
+
+myGamma := function(g_in)
+	local split4by4, 
+			g_out;
+	split4by4 := Partition(Eltseq(g_in), 4);
+	g_out := [];
+	for i in split4by4 do 
+		indiv_prime := myGammaPrime(i);
+		Append(~g_out, indiv_prime);
+		end for;
+		g_out := &cat[ x :x in g_out];
+		return g_out;
+end function;
+
+
+
+
+myLambda := function(l_in)
+	return  l_in^(Sym (16)![1,5,9,13,2,6,10,14,3,7,11,15,4,8,12,16]);  //Permutation
+end function;
+
+
+
+
+myKi := function(key, a)
+	local keys, s;
+	s:= 8 - a;     //s as defined in question
+	keys := [];
+
+	Append(~keys, key);
+
+	for i in [2..12] do
+		last_k := keys[i-1];
+		last_k_4 := Partition(Eltseq(last_k), 4);
+		ki := &cat[
+					myGammaPrime(last_k_4[1]), 
+					last_k_4[2], 
+					myGammaPrime(last_k_4[3]), 
+					last_k_4[4]
+					];
+
+		Rotate(~ki, s);
+		Append(~keys, ki);
+	end for;
+
+	return keys;
+end function;
+
+
+
+
+myEnc := function(e_t, e_k)
+	local a, V16, 
+	text_in, key_in, 
+	round_keys, cipher_text, 
+	cipherText_out; 
+
+	a:= 1;
+	V16 := VectorSpace(GF(2),16);
+	text_in := V16![StringToInteger(x) : x in Eltseq(e_t)];
+	key_in  := V16![StringToInteger(x) : x in Eltseq(e_k)];
+	round_keys  := myKi(key_in, a);
+	cipher_text := text_in;
+
+	for r in [1..12] do 
+		gamma_result := V16!myGamma(cipher_text);
+		after_lambda := myLambda(gamma_result);
+		lambda_seq   := [Integers() | x : x in ElementToSequence(after_lambda)];
+
+		round_key := round_keys[r];		
+		round_key_seq := [Integers() | x : x in ElementToSequence(round_key)];
+
+		//Rho_Ki as defined in question
+		decimal_xor := BitwiseXor(SequenceToInteger(lambda_seq,2), SequenceToInteger(round_key_seq,2));
+		binary_xor  := IntegerToSequence(decimal_xor, 2);
+		cipher_text   := binary_xor cat [0 : x in [1..16-#binary_xor]];
+	end for;
+	
+	cipherText_out := &cat[IntegerToString(x) : x in cipher_text];
+
+	return cipherText_out;
+	
+end function;
+
+
+
+
+TOY16 := function(plainText, key)
+	local enc_output;
+	enc_output := myEnc(plainText, key); //Calling Encryption on the input
+
+	return "==================================================\n ENCRYPTION DONE",
+			"\n PlainText:       ", plainText,
+			"\n Key Used:        ", key,
+			"\n Gave CipherText: ", enc_output,
+			"\n==================================================\n";	
+
+end function;
+
+
+
+
+FIND_KEY  := function(message, known_c_text)
+	 local k_int, 
+			 size, 
+			 testing_key, 
+			 testing_c_text, 
+			 num_worked_key; 
+
+	num_worked_key := 0;
+	 testing_key:= "";
+	 testing_c_text := "";
+	 size:= 2^16;
+	 k_int := 0;
+
+	 for key_int in [0..(size-1)] do
+	 	testing_key_short := IntegerToString(key_int, 2);
+	 	testing_key := "0"^ (16 - #testing_key_short) cat testing_key_short;
+	 	testing_c_text := myEnc(message, testing_key);
+	 	
+	 	if testing_c_text eq known_c_text then
+	 		k_int := key_int;
+	 		k_text_short := IntegerToString(k_int,2);
+	 		k_text := "0"^ (16 - #k_text_short) cat k_text_short;
+	 		num_worked_key := num_worked_key +1;
+
+	 		//I used this commented if statement below to print out all keys that worked
+	 		//if num_worked_key gt 0 then
+	 		//	print "Another key worked, the key is ", k_text;
+	 		//end if;
+
+	 	end if; 
+
+	 end for;
+
+	 return "==================================================",
+			"\n The plainText:                     ",message,
+			"\n which was encrypted to cipherText: ",known_c_text,
+			"\n was encrypted using the key:       ", k_text, 
+			"\n and number of keys that worked is: ", num_worked_key, 
+			"\n==================================================\n";	
+
+end function;
+
+
+
+
+
+// The first test vector in question
+pt := "0000000000000000";
+kt := "1111111111111111";
+ct := "0000110010110110";
+
+// The second test vector in question
+pt2 := "1111111111111111";
+kt2 := "1111111111111111";
+ct2 := "1001011001000000";
+
+// The Third test vector in question
+pt3 := "1111100011100110";
+kt3 := "1100001010101010";
+ct3 := "1001100101101100";
+
+//I found out another key that encrypted pt3 to give same ct3
+kt3_2 := "1001010011111110";
+
+// Question Four Vectors
+que_4_pt := "1010111101100101";
+que_4_ct := "0110011001010000";
+
+
+
+//Use this to Encrypt
+//TOY16(pt,kt);
+
+//Use this to find key
+//FIND_KEY(que_4_pt,que_4_ct);
